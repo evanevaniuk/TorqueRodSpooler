@@ -11,10 +11,6 @@
 #define M2_DIR_PIN          9 // Direction pin for motor 2
 #define M2_PWM_PIN          10 // PWM pin for motor 2
 
-// For testing
-#define DEBUG               1 // Debug Mode
-#define TEST                1 // Testing Mode
-
 // Motors
 #define M1                  1 // Motor 1
 #define M2                  2 // Motor 2
@@ -24,6 +20,6 @@
 void setupMotors();
 void spinMotor(int motor, int speed, int direction);
 void motorTestScript();
-
+void playBadApple(Adafruit_SH1107 display);
 
 #endif // MAIN

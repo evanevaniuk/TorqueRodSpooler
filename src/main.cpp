@@ -4,7 +4,13 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include "main.h"
+#include "badapple.h"
 
+// For testing
+#define DEBUG               1 // Debug Mode
+#define TEST                0 // Testing Mode
+
+// variables
 Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 
 void setup() {
@@ -34,12 +40,14 @@ void setup() {
   setupMotors();
 } // End setup()
 
+
 void loop() {
   delay(1000); // wait for a second
-  if (TEST) {
+  if (TEST) { 
     motorTestScript();
     while (1); // stop the loop
   }
+  playBadApple(display);
 } // End loop()
 
 /*********************************************/
@@ -83,3 +91,16 @@ void motorTestScript(){
   spinMotor(M1, 0, 0);
   spinMotor(M2, 0, 0);
 } // End motorTestScript()
+
+
+void playBadApple(Adafruit_SH1107 display){
+  // This function will play the bad apple animation on the OLED display. 
+  for (int i = 0; i < 1095; i++) {
+    display.clearDisplay();
+    display.drawBitmap(0, 0, badapple_frames[i], 128, 64, 1);
+    display.display();
+    delay(100);   
+  }
+} // End playBadApple()
+
+// End of File
