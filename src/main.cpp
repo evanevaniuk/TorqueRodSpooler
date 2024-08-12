@@ -130,6 +130,10 @@ void handleButtonPressB(){
     case MAIN_MENU: 
       menuState = SETTINGS_MENU;
       break;
+    case MOTOR_MENU:
+      menuState = MOTOR_TESTING;
+      motorTestScript();
+      break;
     default:
       menuState = MAIN_MENU;
       break;
@@ -155,6 +159,9 @@ void handleButtonPressC(){
       menuState = MAIN_MENU;
       break;
     case ABOUT_MENU:
+      menuState = MAIN_MENU;
+      break;
+    case MOTOR_TESTING:
       menuState = MAIN_MENU;
       break;
   }
@@ -222,7 +229,18 @@ void displayMenu(){
         display.println("Settings Menu");
         display.display();
         break;
+      case MOTOR_TESTING:
+        display.setTextSize(2);
+        display.setTextColor(SH110X_WHITE);
+        display.setCursor(0,0);
+        display.println("Motor Test Menu");
+        display.setTextSize(1);
+        display.setCursor(0,50);
+        display.println("Return");
+        display.display();
+        break;
       case ABOUT_MENU:
+        // I want to display an actual logo here with some details if possible. then if pressed 3 times, it should display the bad apple animation.
         playBadApple(display);
         break;
     } // End switch
@@ -232,6 +250,7 @@ void displayMenu(){
 void playBadApple(Adafruit_SH1107 display){
   // This function will play the bad apple animation on the OLED display. 
   for (int i = 0; i < 300; i++) {
+    // at any point in the animation, if the state changes, we should stop the animation and back out the menu.
     if (stateChange) {
         display.clearDisplay();
         display.display();
