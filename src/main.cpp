@@ -48,6 +48,18 @@ void setup() {
   // Set up the motors
   setupMotors();
 
+  // Setup the generic clock 7 (GCLK7) to clock timer TCC0
+  GCLK->GENCTRL[7].reg = GCLK_GENCTRL_DIV(1) |          // Divide the 120MHz clock source by divisor 1: 120MHz/1 = 120MHz
+                         GCLK_GENCTRL_IDC |              // Set the duty cycle to 50/50 HIGH/LOW
+                         GCLK_GENCTRL_GENEN |            // Enable the generator (GCLK7)
+                         GCLK_GENCTRL_SRC_DFLL;          // Set the clock source to 120MHz
+  while (GCLK->SYNCBUSY.bit.GENCTRL7);                   // Wait for synchronization
+
+  GCLK->PCHCTRL[TCC0_GCLK_ID].reg = GCLK_PCHCTRL_CHEN |       // Enable the tcc0/tcc1 peripheral channel
+                                    GCLK_PCHCTRL_GEN_GCLK7;   // connect the 120MHz generic clock 7 to TCO0
+  initTCC0(TCC0, 1000); // Initialize the TCC0 timer with a period of 1000                       
+
+
   // Now display the Main menu
   stateChange = true;
   displayMenu();  // state is set to main menu by default. 
@@ -93,17 +105,12 @@ void spinMotor(int motor, int speed, int direction) {
 
 // code to test motors
 void motorTestScript(){ 
-  spinMotor(M1, 255, 1);
-  spinMotor(M2, 255, 1);
-  delay(5000); // wait for 5 seconds  
+  while (!stateChange) {
+    spinMotor(M1, 127, 1);
+    spinMotor(M2, 127, 1);  
+  }
   spinMotor(M1, 0, 1);
   spinMotor(M2, 0, 1);
-  delay(5000); // wait for 5 seconds
-  spinMotor(M1, 255, 0);
-  spinMotor(M2, 255, 0);
-  delay(5000); // wait for 5 seconds
-  spinMotor(M1, 0, 0);
-  spinMotor(M2, 0, 0);
 } // End motorTestScript()
 
 void handleButtonPressA(){ 
@@ -132,7 +139,6 @@ void handleButtonPressB(){
       break;
     case MOTOR_MENU:
       menuState = MOTOR_TESTING;
-      motorTestScript();
       break;
     default:
       menuState = MAIN_MENU;
@@ -233,11 +239,12 @@ void displayMenu(){
         display.setTextSize(2);
         display.setTextColor(SH110X_WHITE);
         display.setCursor(0,0);
-        display.println("Motor Test Menu");
+        display.println("Motor Test:Active");
         display.setTextSize(1);
         display.setCursor(0,50);
         display.println("Return");
         display.display();
+        motorTestScript();
         break;
       case ABOUT_MENU:
         // I want to display an actual logo here with some details if possible. then if pressed 3 times, it should display the bad apple animation.
@@ -246,6 +253,33 @@ void displayMenu(){
     } // End switch
   } // End if stateChange
 } // End displayMenu()
+
+void initTCC0(Tcc *TCC, int period) {
+  MCLK->APBAMASK.reg |= MCLK_APBAMASK_TC0;           // Activate timer TC0
+  
+  TCC->WAVE.reg = TCC_WAVE_WAVEGEN_NPWM; // Set TCC0 to normal PWM mode (NPWM)
+  while (TCC->SYNCBUSY.bit.WAVE); // Wait for synchronization
+
+  TCC->PER.reg = period; // Set the period of the PWM
+  while (TCC->SYNCBUSY.bit.PER); // Wait for synchronization
+
+  int cc = 150; // Set the duty cycle to 50%
+  for (int i = 0; i < 6; i++) { // not sure why we are doing this 7 times.
+    TCC->CC[i].reg = cc; // Set the duty cycle
+    while (TCC->SYNCBUSY.bit.CC0); // Wait for synchronization
+  }
+} // End initTCC()
+
+void setIOMux(int pin_id, int channel){ 
+  // Enable the peripheral multiplexer on pin_id
+  PORT->Group[g_APinDescription[pin_id].ulPort].PINCFG[g_APinDescription[pin_id].ulPin].bit.PMUXEN = 1;
+  // Set the pin_id peripheral multiplexer to peripheral (even port number) channel
+  if (g_APinDescription[pin_id].ulPin % 2 == 0){
+    PORT->Group[g_APinDescription[pin_id].ulPort].PMUX[g_APinDescription[pin_id].ulPin >> 1].reg |= PORT_PMUX_PMUXE(channel);
+  } else {  // odd port channel
+    PORT->Group[g_APinDescription[pin_id].ulPort].PMUX[g_APinDescription[pin_id].ulPin >> 1].reg |= PORT_PMUX_PMUXO(channel);
+  }
+} // End setIOMux()
 
 void playBadApple(Adafruit_SH1107 display){
   // This function will play the bad apple animation on the OLED display. 

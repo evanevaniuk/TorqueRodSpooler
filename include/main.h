@@ -6,10 +6,9 @@
 #define DISPLAY_BUTTON_B    6
 #define DISPLAY_BUTTON_C    5
 
-#define M1_DIR_PIN          10 // Direction pin for motor 1
-#define M1_PWM_PIN          11 // PWM pin for motor 1
-#define M2_DIR_PIN          12 // Direction pin for motor 2
-#define M2_PWM_PIN          13 // PWM pin for motor 2
+#define M1_PWM_PIN          10 // PWM pin for motor 1
+#define M2_PWM_PIN          11 // PWM pin for motor 2
+#define M1_DIR_PIN          12 // Direction pin for motor 1
 
 // Motors
 #define M1                  1 // Motor 1
@@ -18,6 +17,8 @@
 
 // Function Declarations
 void setupMotors();
+void initTCC0(Tcc *TCC, int period);
+void setIOMux(int pin_id, int channel);
 void spinMotor(int motor, int speed, int direction);
 void motorTestScript();
 void playBadApple(Adafruit_SH1107 display);
