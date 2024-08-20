@@ -6,6 +6,7 @@
 #include "main.h"
 #include "badapple.h"
 #include "menu.h"
+#include "SAMD_PWM.h"
 
 // For testing
 #define DEBUG               1 // Debug Mode
@@ -16,6 +17,8 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 volatile MenuState menuState = MAIN_MENU;
 volatile bool stateChange = false;
 
+SAMD_PWM* Motor1;
+SAMD_PWM* Motor2;
 
 void setup() {
   if (DEBUG)  { 
@@ -40,25 +43,17 @@ void setup() {
   pinMode(DISPLAY_BUTTON_B, INPUT_PULLUP);
   pinMode(DISPLAY_BUTTON_C, INPUT_PULLUP);
 
+  // Set up the step scaling
+  pinMode(STEP_SCALE_M0, INPUT);  // input for High-Z
+  pinMode(STEP_SCALE_M1, INPUT);
+
   // Setup button interrupt
   attachInterrupt(digitalPinToInterrupt(DISPLAY_BUTTON_A), handleButtonPressA, FALLING);
   attachInterrupt(digitalPinToInterrupt(DISPLAY_BUTTON_B), handleButtonPressB, FALLING);
   attachInterrupt(digitalPinToInterrupt(DISPLAY_BUTTON_C), handleButtonPressC, FALLING);
 
   // Set up the motors
-  setupMotors();
-
-  // Setup the generic clock 7 (GCLK7) to clock timer TCC0
-  GCLK->GENCTRL[7].reg = GCLK_GENCTRL_DIV(1) |          // Divide the 120MHz clock source by divisor 1: 120MHz/1 = 120MHz
-                         GCLK_GENCTRL_IDC |              // Set the duty cycle to 50/50 HIGH/LOW
-                         GCLK_GENCTRL_GENEN |            // Enable the generator (GCLK7)
-                         GCLK_GENCTRL_SRC_DFLL;          // Set the clock source to 120MHz
-  while (GCLK->SYNCBUSY.bit.GENCTRL7);                   // Wait for synchronization
-
-  GCLK->PCHCTRL[TCC0_GCLK_ID].reg = GCLK_PCHCTRL_CHEN |       // Enable the tcc0/tcc1 peripheral channel
-                                    GCLK_PCHCTRL_GEN_GCLK7;   // connect the 120MHz generic clock 7 to TCO0
-  initTCC0(TCC0, 1000); // Initialize the TCC0 timer with a period of 1000                       
-
+  setupMotors();                 
 
   // Now display the Main menu
   stateChange = true;
@@ -82,35 +77,47 @@ void loop() {
 
 // code to setup motors
 void setupMotors() {
-  // We need to init 3 pins for the motor driver: 1. Direction pin  2. PWM pin (the Step Pin on the driver) 3. Enable pin
+  if (DEBUG) {
+    Serial.print(F("\nStarting PWM_StepperControl on "));
+    Serial.println(BOARD_NAME);
+    Serial.println(SAMD_PWM_VERSION);
+  }
+  Motor1 = new SAMD_PWM(M1_PWM_PIN, 500, 0);
+  Motor2 = new SAMD_PWM(M2_PWM_PIN, 500, 0);
   pinMode(M1_DIR_PIN, OUTPUT);
-  pinMode(M1_PWM_PIN, OUTPUT);
-  pinMode(M2_DIR_PIN, OUTPUT);
-  pinMode(M2_PWM_PIN, OUTPUT);
-  // And we probably dont need a direction pin on the second motor, since it only needs to go a single direction.  
 } // End setupMotors()
 
-// code to spin motor
-void spinMotor(int motor, int speed, int direction) {
-  // For Phase 1 of testing, We just need both motors to spin. 
-  // To spin a motor we select the direction and then the step pin (pwm) is the speed control.
-  if (motor == M1) {
-    digitalWrite(M1_DIR_PIN, direction);
-    analogWrite(M1_PWM_PIN, speed);
-  } else if (motor == M2) {
-    digitalWrite(M2_DIR_PIN, direction);
-    analogWrite(M2_PWM_PIN, speed);
+void M1setSpeed(int speed) {
+  if (speed == 0) {
+    Motor1->setPWM(M1_PWM_PIN, 500, 0);
+  } 
+  else { 
+    // If the direction is reversed, then we toggle the pin
+    digitalWrite(M1_DIR_PIN, (speed < 0));
+    Motor1->setPWM(M1_PWM_PIN, abs(speed), 50); // 50% duty cycle
   }
-} // End spinMotor()
+}
+
+void M2setSpeed(int speed) {
+  if (speed == 0) {
+    Motor2->setPWM(M2_PWM_PIN, 500, 0);
+  } 
+  else {
+    Motor2->setPWM(M2_PWM_PIN, abs(speed), 50); // 50% duty cycle
+  }
+}
 
 // code to test motors
 void motorTestScript(){ 
-  while (!stateChange) {
-    spinMotor(M1, 127, 1);
-    spinMotor(M2, 127, 1);  
+  // while (!stateChange) {
+  //   M1setSpeed(25000);
+  //   M2setSpeed(25000);
+  // }
+  for (int i = 0; i<(200*128); i++) {
+    M2setSpeed(1000);
   }
-  spinMotor(M1, 0, 1);
-  spinMotor(M2, 0, 1);
+  M1setSpeed(0);
+  M2setSpeed(0);
 } // End motorTestScript()
 
 void handleButtonPressA(){ 
@@ -254,8 +261,27 @@ void displayMenu(){
   } // End if stateChange
 } // End displayMenu()
 
+void setupClock() {
+    // Setup the generic clock 7 (GCLK7) to clock timer TCC0
+  GCLK->GENCTRL[7].reg = GCLK_GENCTRL_DIV(1) |          // Divide the 120MHz clock source by divisor 1: 120MHz/1 = 120MHz
+                         GCLK_GENCTRL_IDC |              // Set the duty cycle to 50/50 HIGH/LOW
+                         GCLK_GENCTRL_GENEN |            // Enable the generator (GCLK7)
+                         GCLK_GENCTRL_SRC_DFLL;          // Set the clock source to 120MHz
+  while (GCLK->SYNCBUSY.bit.GENCTRL7);                   // Wait for synchronization
+
+  GCLK->PCHCTRL[TCC0_GCLK_ID].reg = GCLK_PCHCTRL_CHEN |       // Enable the tcc0/tcc1 peripheral channel
+                                    GCLK_PCHCTRL_GEN_GCLK7;   // connect the 120MHz generic clock 7 to TCO0
+  
+  setIOMux(M1_PWM_PIN, 2); // Set the PWM pin to channel 2
+  
+  initTCC0(TCC0, 1000); // Initialize the TCC0 timer with a period of 1000      
+}
+
 void initTCC0(Tcc *TCC, int period) {
   MCLK->APBAMASK.reg |= MCLK_APBAMASK_TC0;           // Activate timer TC0
+
+  TCC->CTRLA.reg = TC_CTRLA_PRESCALER_DIV8 |        // Set prescaler to 8, 48MHz/8 = 6MHz
+                    TC_CTRLA_PRESCSYNC_PRESC;        // Set the reset/reload to trigger on prescaler clock  
   
   TCC->WAVE.reg = TCC_WAVE_WAVEGEN_NPWM; // Set TCC0 to normal PWM mode (NPWM)
   while (TCC->SYNCBUSY.bit.WAVE); // Wait for synchronization
@@ -263,11 +289,13 @@ void initTCC0(Tcc *TCC, int period) {
   TCC->PER.reg = period; // Set the period of the PWM
   while (TCC->SYNCBUSY.bit.PER); // Wait for synchronization
 
-  int cc = 150; // Set the duty cycle to 50%
   for (int i = 0; i < 6; i++) { // not sure why we are doing this 7 times.
-    TCC->CC[i].reg = cc; // Set the duty cycle
+    TCC->CC[i].reg = period/2; // Set the duty cycle
     while (TCC->SYNCBUSY.bit.CC0); // Wait for synchronization
   }
+
+  TCC->CTRLA.bit.ENABLE = 1; // Enable the TCC timer
+  while (TCC->SYNCBUSY.bit.ENABLE); // Wait for synchronization
 } // End initTCC()
 
 void setIOMux(int pin_id, int channel){ 
