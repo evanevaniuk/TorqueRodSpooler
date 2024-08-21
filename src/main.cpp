@@ -8,14 +8,12 @@
 #include "menu.h"
 #include "SAMD_PWM.h"
 
-// For testing
-#define DEBUG               1 // Debug Mode
-#define TEST                0 // Testing Mode
-
 // Global variables
 Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 volatile MenuState menuState = MAIN_MENU;
 volatile bool stateChange = false;
+
+int stepScaling = 256;    // 1/128 step scaling
 
 SAMD_PWM* Motor1;
 SAMD_PWM* Motor2;
@@ -42,10 +40,6 @@ void setup() {
   pinMode(DISPLAY_BUTTON_A, INPUT_PULLUP);
   pinMode(DISPLAY_BUTTON_B, INPUT_PULLUP);
   pinMode(DISPLAY_BUTTON_C, INPUT_PULLUP);
-
-  // Set up the step scaling
-  pinMode(STEP_SCALE_M0, INPUT);  // input for High-Z
-  pinMode(STEP_SCALE_M1, INPUT);
 
   // Setup button interrupt
   attachInterrupt(digitalPinToInterrupt(DISPLAY_BUTTON_A), handleButtonPressA, FALLING);
@@ -82,17 +76,85 @@ void setupMotors() {
     Serial.println(BOARD_NAME);
     Serial.println(SAMD_PWM_VERSION);
   }
+
+  if (DEBUG) Serial.println("Enabling the motor drivers");
+  pinMode(ENABLE_PIN, OUTPUT);
+  digitalWrite(ENABLE_PIN, LOW); // Enable the motor drivers
+
+  // Set up the step scaling
+  if (DEBUG) Serial.println("Setting up step scaling");
+  switch (stepScaling) {
+    case 1:
+      if (DEBUG) Serial.println("Step scaling set to Full-Step");
+      pinMode(STEP_SCALE_M1, OUTPUT);
+      pinMode(STEP_SCALE_M0, OUTPUT);
+      digitalWrite(STEP_SCALE_M1, LOW);
+      digitalWrite(STEP_SCALE_M0, LOW);
+      break;
+    case 2:
+      if (DEBUG) Serial.println("Step scaling set to 1/2");
+      pinMode(STEP_SCALE_M1, INPUT);
+      pinMode(STEP_SCALE_M0, OUTPUT);
+      digitalWrite(STEP_SCALE_M1, LOW);
+      break;
+    case 4:
+      if (DEBUG) Serial.println("Step scaling set to 1/4");
+      pinMode(STEP_SCALE_M1, OUTPUT);
+      pinMode(STEP_SCALE_M0, OUTPUT);
+      digitalWrite(STEP_SCALE_M0, LOW);
+      digitalWrite(STEP_SCALE_M1, HIGH);
+      break;
+    case 8:
+      if (DEBUG) Serial.println("Step scaling set to 1/8");
+      pinMode(STEP_SCALE_M1, OUTPUT);
+      pinMode(STEP_SCALE_M0, OUTPUT);
+      digitalWrite(STEP_SCALE_M0, HIGH);
+      digitalWrite(STEP_SCALE_M1, HIGH);
+      break;
+    case 16:
+      if (DEBUG) Serial.println("Step scaling set to 1/16");
+      pinMode(STEP_SCALE_M1, OUTPUT);
+      pinMode(STEP_SCALE_M0, INPUT);
+      digitalWrite(STEP_SCALE_M1, HIGH);
+      break;
+    case 32:
+      if (DEBUG) Serial.println("Step scaling set to 1/32");
+      pinMode(STEP_SCALE_M1, INPUT);
+      pinMode(STEP_SCALE_M0, OUTPUT);
+      digitalWrite(STEP_SCALE_M0, LOW);
+      break;
+    case 128:  // High impedance state. 1/128 step scaling
+      if (DEBUG) Serial.println("Step scaling set to 1/128");
+      pinMode(STEP_SCALE_M1, INPUT);
+      pinMode(STEP_SCALE_M0, INPUT); 
+      break;
+    case 256:
+      if (DEBUG) Serial.println("Step scaling set to 1/256");
+      pinMode(STEP_SCALE_M1, INPUT);
+      pinMode(STEP_SCALE_M0, OUTPUT);
+      digitalWrite(STEP_SCALE_M0, HIGH);
+      break;
+    default:
+      if (DEBUG) Serial.println("Step scaling defualted to 1/128");
+      pinMode(STEP_SCALE_M1, INPUT);
+      pinMode(STEP_SCALE_M0, INPUT); 
+      break;
+  }
+
   Motor1 = new SAMD_PWM(M1_PWM_PIN, 500, 0);
   Motor2 = new SAMD_PWM(M2_PWM_PIN, 500, 0);
   pinMode(M1_DIR_PIN, OUTPUT);
+  digitalWrite(M1_DIR_PIN, LOW);
 } // End setupMotors()
 
 void M1setSpeed(int speed) {
   if (speed == 0) {
     Motor1->setPWM(M1_PWM_PIN, 500, 0);
+    digitalWrite(ENABLE_PIN, LOW); // Disable the motor drivers
   } 
   else { 
     // If the direction is reversed, then we toggle the pin
+    digitalWrite(ENABLE_PIN, HIGH);
     digitalWrite(M1_DIR_PIN, (speed < 0));
     Motor1->setPWM(M1_PWM_PIN, abs(speed), 50); // 50% duty cycle
   }
@@ -100,21 +162,20 @@ void M1setSpeed(int speed) {
 
 void M2setSpeed(int speed) {
   if (speed == 0) {
+    digitalWrite(ENABLE_PIN, LOW); // Disable the motor drivers
     Motor2->setPWM(M2_PWM_PIN, 500, 0);
   } 
   else {
+    digitalWrite(ENABLE_PIN, HIGH);
     Motor2->setPWM(M2_PWM_PIN, abs(speed), 50); // 50% duty cycle
   }
 }
 
 // code to test motors
 void motorTestScript(){ 
-  // while (!stateChange) {
-  //   M1setSpeed(25000);
-  //   M2setSpeed(25000);
-  // }
-  for (int i = 0; i<(200*128); i++) {
-    M2setSpeed(1000);
+  while (!stateChange) {
+    M1setSpeed(25000);
+    M2setSpeed(25000);
   }
   M1setSpeed(0);
   M2setSpeed(0);
@@ -221,7 +282,7 @@ void displayMenu(){
         display.println("Start");
 
         display.setCursor(0, 30); // Position for the second button option
-        display.println("Set Params");
+        display.println("Motor Testing");
 
         display.setCursor(0, 50); // Position for the third button option
         display.println("Return");
@@ -260,54 +321,6 @@ void displayMenu(){
     } // End switch
   } // End if stateChange
 } // End displayMenu()
-
-void setupClock() {
-    // Setup the generic clock 7 (GCLK7) to clock timer TCC0
-  GCLK->GENCTRL[7].reg = GCLK_GENCTRL_DIV(1) |          // Divide the 120MHz clock source by divisor 1: 120MHz/1 = 120MHz
-                         GCLK_GENCTRL_IDC |              // Set the duty cycle to 50/50 HIGH/LOW
-                         GCLK_GENCTRL_GENEN |            // Enable the generator (GCLK7)
-                         GCLK_GENCTRL_SRC_DFLL;          // Set the clock source to 120MHz
-  while (GCLK->SYNCBUSY.bit.GENCTRL7);                   // Wait for synchronization
-
-  GCLK->PCHCTRL[TCC0_GCLK_ID].reg = GCLK_PCHCTRL_CHEN |       // Enable the tcc0/tcc1 peripheral channel
-                                    GCLK_PCHCTRL_GEN_GCLK7;   // connect the 120MHz generic clock 7 to TCO0
-  
-  setIOMux(M1_PWM_PIN, 2); // Set the PWM pin to channel 2
-  
-  initTCC0(TCC0, 1000); // Initialize the TCC0 timer with a period of 1000      
-}
-
-void initTCC0(Tcc *TCC, int period) {
-  MCLK->APBAMASK.reg |= MCLK_APBAMASK_TC0;           // Activate timer TC0
-
-  TCC->CTRLA.reg = TC_CTRLA_PRESCALER_DIV8 |        // Set prescaler to 8, 48MHz/8 = 6MHz
-                    TC_CTRLA_PRESCSYNC_PRESC;        // Set the reset/reload to trigger on prescaler clock  
-  
-  TCC->WAVE.reg = TCC_WAVE_WAVEGEN_NPWM; // Set TCC0 to normal PWM mode (NPWM)
-  while (TCC->SYNCBUSY.bit.WAVE); // Wait for synchronization
-
-  TCC->PER.reg = period; // Set the period of the PWM
-  while (TCC->SYNCBUSY.bit.PER); // Wait for synchronization
-
-  for (int i = 0; i < 6; i++) { // not sure why we are doing this 7 times.
-    TCC->CC[i].reg = period/2; // Set the duty cycle
-    while (TCC->SYNCBUSY.bit.CC0); // Wait for synchronization
-  }
-
-  TCC->CTRLA.bit.ENABLE = 1; // Enable the TCC timer
-  while (TCC->SYNCBUSY.bit.ENABLE); // Wait for synchronization
-} // End initTCC()
-
-void setIOMux(int pin_id, int channel){ 
-  // Enable the peripheral multiplexer on pin_id
-  PORT->Group[g_APinDescription[pin_id].ulPort].PINCFG[g_APinDescription[pin_id].ulPin].bit.PMUXEN = 1;
-  // Set the pin_id peripheral multiplexer to peripheral (even port number) channel
-  if (g_APinDescription[pin_id].ulPin % 2 == 0){
-    PORT->Group[g_APinDescription[pin_id].ulPort].PMUX[g_APinDescription[pin_id].ulPin >> 1].reg |= PORT_PMUX_PMUXE(channel);
-  } else {  // odd port channel
-    PORT->Group[g_APinDescription[pin_id].ulPort].PMUX[g_APinDescription[pin_id].ulPin >> 1].reg |= PORT_PMUX_PMUXO(channel);
-  }
-} // End setIOMux()
 
 void playBadApple(Adafruit_SH1107 display){
   // This function will play the bad apple animation on the OLED display. 
