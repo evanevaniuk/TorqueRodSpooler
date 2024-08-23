@@ -175,7 +175,7 @@ void M2setSpeed(int speed) {
 void motorTestScript(){ 
   while (!stateChange) {
     M1setSpeed(25000);
-    M2setSpeed(25000);
+    M2setSpeed(5000);
   }
   M1setSpeed(0);
   M2setSpeed(0);
