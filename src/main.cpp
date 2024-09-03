@@ -1,19 +1,13 @@
-#include <Arduino.h>
-#include <SPI.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>
 #include "main.h"
 #include "badapple.h"
-#include "menu.h"
 #include "SAMD_PWM.h"
 
 // Global variables
 Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
-volatile MenuState menuState = MAIN_MENU;
-volatile bool stateChange = false;
+volatile MENUSTATE mState = MAIN_MENU;
+bool volatile stateChange = false;
 
-int stepScaling = 256;    // 1/128 step scaling
+int stepScaling = 128;    // 1/128 step scaling
 
 SAMD_PWM* Motor1;
 SAMD_PWM* Motor2;
@@ -57,10 +51,10 @@ void setup() {
 
 void loop() {
   delay(10);
-  if (TEST) { 
-    motorTestScript();
-    while (1); // stop the loop
-  }
+  // if (TEST) { 
+  //   motorTestScript();
+  //   while (1); // stop the loop
+  // }
   // Main loop
   displayMenu();
 } // End loop()
@@ -141,8 +135,8 @@ void setupMotors() {
       break;
   }
 
-  Motor1 = new SAMD_PWM(M1_PWM_PIN, 500, 0);
-  Motor2 = new SAMD_PWM(M2_PWM_PIN, 500, 0);
+  Motor1 = new SAMD_PWM(M1_PWM_PIN, 0, 0);
+  Motor2 = new SAMD_PWM(M2_PWM_PIN, 0, 0);
   pinMode(M1_DIR_PIN, OUTPUT);
   digitalWrite(M1_DIR_PIN, LOW);
 } // End setupMotors()
@@ -151,12 +145,13 @@ void M1setSpeed(int speed) {
   if (speed == 0) {
     Motor1->setPWM(M1_PWM_PIN, 500, 0);
     digitalWrite(ENABLE_PIN, LOW); // Disable the motor drivers
+    if (DEBUG) Serial.println("Motor 1 stopped");
   } 
   else { 
     // If the direction is reversed, then we toggle the pin
-    digitalWrite(ENABLE_PIN, HIGH);
     digitalWrite(M1_DIR_PIN, (speed < 0));
     Motor1->setPWM(M1_PWM_PIN, abs(speed), 50); // 50% duty cycle
+    if (DEBUG) Serial.println("Motor 1 Speed: " + String(Motor1->getActualFreq()));
   }
 }
 
@@ -164,19 +159,25 @@ void M2setSpeed(int speed) {
   if (speed == 0) {
     digitalWrite(ENABLE_PIN, LOW); // Disable the motor drivers
     Motor2->setPWM(M2_PWM_PIN, 500, 0);
+    if (DEBUG) Serial.println("Motor 2 stopped");
   } 
   else {
-    digitalWrite(ENABLE_PIN, HIGH);
     Motor2->setPWM(M2_PWM_PIN, abs(speed), 50); // 50% duty cycle
+    if (DEBUG) Serial.println("Motor 2 Speed: " + String(Motor2->getActualFreq()));
   }
 }
 
 // code to test motors
-void motorTestScript(){ 
-  while (!stateChange) {
-    M1setSpeed(25000);
-    M2setSpeed(5000);
-  }
+void motorTestScript() { 
+  digitalWrite(ENABLE_PIN, HIGH);
+  M1setSpeed(25000);
+  M2setSpeed(25000);
+  if (DEBUG) Serial.println("stateChange: " + String(stateChange));
+  while (!stateChange) {} // infinite loop until the state changes
+  
+  if (DEBUG) Serial.println("stateChange: " + String(stateChange));
+  // deactivate the motors. 
+  digitalWrite(ENABLE_PIN, LOW);
   M1setSpeed(0);
   M2setSpeed(0);
 } // End motorTestScript()
@@ -184,15 +185,15 @@ void motorTestScript(){
 void handleButtonPressA(){ 
   // This should be the callback function for A button presses. 
   if (DEBUG) Serial.println("Button A Pressed");
-  switch(menuState) {
+  switch(mState) {
     case MAIN_MENU: 
-      menuState = MOTOR_MENU;
+      mState = MOTOR_MENU;
       break;
     case MOTOR_MENU:
-      menuState = MOTOR_PROGRESS_MENU;
+      mState = MOTOR_PROGRESS_MENU;
       break;
     default:
-      menuState = MAIN_MENU;
+      mState = MAIN_MENU;
       break;
   }
   stateChange = true;
@@ -201,15 +202,15 @@ void handleButtonPressA(){
 void handleButtonPressB(){ 
   // This should be the callback function for B button presses. 
   if (DEBUG) Serial.println("Button B Pressed");
-  switch(menuState) {
+  switch(mState) {
     case MAIN_MENU: 
-      menuState = SETTINGS_MENU;
+      mState = SETTINGS_MENU;
       break;
     case MOTOR_MENU:
-      menuState = MOTOR_TESTING;
+      mState = MOTOR_TESTING;
       break;
     default:
-      menuState = MAIN_MENU;
+      mState = MAIN_MENU;
       break;
   }
   stateChange = true;
@@ -219,34 +220,57 @@ void handleButtonPressC(){
   // This should be the callback function for C button presses. 
   // C button should act like our back button for everything except the main menu.
   if (DEBUG) Serial.println("Button C Pressed");
-  switch(menuState) {
+  switch(mState) {
     case MAIN_MENU: 
-      menuState = ABOUT_MENU;
+      mState = ABOUT_MENU1;
       break;
     case MOTOR_MENU:
-      menuState = MAIN_MENU;
+      mState = MAIN_MENU;
       break;
     case MOTOR_PROGRESS_MENU:
-      menuState = MOTOR_MENU;
+      mState = MOTOR_MENU;
       break;
     case SETTINGS_MENU:
-      menuState = MAIN_MENU;
+      mState = MAIN_MENU;
       break;
-    case ABOUT_MENU:
-      menuState = MAIN_MENU;
+    case ABOUT_MENU1:
+      mState = ABOUT_MENU2;
       break;
     case MOTOR_TESTING:
-      menuState = MAIN_MENU;
+      mState = MAIN_MENU;
+      break;
+    case ABOUT_MENU2:
+      mState = MAIN_MENU;
       break;
   }
   stateChange = true;
 } // End handleButtonPresses()
 
-void displayMenu(){ 
+void playBadApple(Adafruit_SH1107 display){
+  
+  if (DEBUG) Serial.println("stateChange: " + String(stateChange));
+  // This function will play the bad apple animation on the OLED display. 
+  for (int i = 0; i < 300; i++) {
+    // at any point in the animation, if the state changes, we should stop the animation and back out the menu.
+    if (stateChange) {
+        display.clearDisplay();
+        display.display();
+        return;
+    }
+    display.clearDisplay();
+    display.drawBitmap(0, 0, badapple_frames[i], 128, 64, 1);
+    display.display();
+    delay(100);   
+  }
+  display.clearDisplay();
+  display.display();
+} // End playBadApple()
+
+void displayMenu() { 
   display.clearDisplay();
   if (stateChange) { 
     stateChange = false;  // reset the stateChange flag
-    switch(menuState) {
+    switch(mState) {
       case MAIN_MENU: 
         // Move title to the right side and split into two lines
         display.setTextSize(2); // Set text size to 2
@@ -301,6 +325,10 @@ void displayMenu(){
         display.setTextColor(SH110X_WHITE);
         display.setCursor(0,0);
         display.println("Settings Menu");
+        display.setCursor(0,10);
+        display.println("Sorry, theres no settings yet.");
+        display.setCursor(0, 50); // Position for the third button option
+        display.println("Return");
         display.display();
         break;
       case MOTOR_TESTING:
@@ -314,30 +342,22 @@ void displayMenu(){
         display.display();
         motorTestScript();
         break;
-      case ABOUT_MENU:
-        // I want to display an actual logo here with some details if possible. then if pressed 3 times, it should display the bad apple animation.
+      case ABOUT_MENU1:
+        display.setTextSize(1);
+        display.setTextColor(SH110X_WHITE);
+        display.setCursor(0,0);
+        display.println("About");
+        display.setCursor(0,10);
+        display.println("Flux_Weaver_V1.0");
+        display.setCursor(0,20);
+        display.println("Author: Evan Evaniuk");
+        display.display();
+        break;
+      case ABOUT_MENU2:
         playBadApple(display);
         break;
     } // End switch
   } // End if stateChange
 } // End displayMenu()
-
-void playBadApple(Adafruit_SH1107 display){
-  // This function will play the bad apple animation on the OLED display. 
-  for (int i = 0; i < 300; i++) {
-    // at any point in the animation, if the state changes, we should stop the animation and back out the menu.
-    if (stateChange) {
-        display.clearDisplay();
-        display.display();
-        return;
-    }
-    display.clearDisplay();
-    display.drawBitmap(0, 0, badapple_frames[i], 128, 64, 1);
-    display.display();
-    delay(100);   
-  }
-  display.clearDisplay();
-  display.display();
-} // End playBadApple()
 
 // End of File
